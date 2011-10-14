@@ -17,13 +17,20 @@ import android.hardware.Camera.PreviewCallback;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.GLU;
+import android.opengl.Matrix;
 import android.util.Log;
 import android.view.SurfaceHolder;
 import android.opengl.GLSurfaceView.Renderer;
+import android.os.SystemClock;
 
 public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCallback
 {
 	float camObjCoord[];
+	
+  private float[] mMVPMatrix = new float[16];
+  private float[] mProjMatrix = new float[16];
+  private float[] mMMatrix = new float[16];
+  private float[] mVMatrix = new float[16];
 	
 	final static float camTexCoords[] = new float[] { 0f, 0f,
 	                                         				  1f, 0f,
@@ -41,7 +48,13 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 	private long prevFrame = 0;
 	private long frame = 0;
 	
+	private float[] projectionMatrix = new float[16];
+	private float[] modelViewMatrix = new float[16];
+	
 	private int shaderProgram;
+	private int shaderVertexPositionLocation;
+	private int shaderModelViewMatrixLocation;
+	private int shaderProjectionMatrixLocation;
 	
 	public CameraSurface(Context context)
 	{
@@ -49,7 +62,7 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 		
 		setEGLContextClientVersion(2);
     setEGLConfigChooser(false);
-    setRenderer(this);
+    setRenderer(new Example(context));
 	}
 	
 	FloatBuffer makeFloatBuffer(float[] arr) 
@@ -87,18 +100,23 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 		camera.startPreview();
 		camera.setPreviewCallback(this);
 		
-		gl.glHint(GL10.GL_PERSPECTIVE_CORRECTION_HINT, GL10.GL_FASTEST);
-
 		gl.glClearColor(0, 0, 0, 0);
 		gl.glEnable(GL10.GL_CULL_FACE);
-		gl.glShadeModel(GL10.GL_SMOOTH);
+		//gl.glShadeModel(GL10.GL_SMOOTH);
 		gl.glEnable(GL10.GL_DEPTH_TEST);
 		
 		texBuff = makeFloatBuffer(camTexCoords);		
-		gl.glTexCoordPointer(2, GL10.GL_FLOAT, 0, texBuff);
-		gl.glEnableClientState(GL10.GL_TEXTURE_COORD_ARRAY);
+		//gl.glTexCoordPointer(2, GL10.GL_FLOAT, 0, texBuff);
+		//gl.glEnableClientState(GL10.GL_TEXTURE_COORD_ARRAY);
 		
 		shaderProgram = createProgram(readShaderSource(true), readShaderSource(false));
+		checkGlError("createProgram");
+		
+		shaderVertexPositionLocation = GLES20.glGetAttribLocation(shaderProgram, "aVertexPosition");
+		shaderProjectionMatrixLocation = GLES20.glGetUniformLocation(shaderProgram, "uProjectionMatrix");
+		checkGlError("getLocation");
+		
+		Matrix.setLookAtM(mVMatrix, 0, 0, 0, -5, 0f, 0f, 0f, 0f, 1.0f, 0.0f);
 	}
 
 	@Override
@@ -106,22 +124,30 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 	{
 		gl.glViewport(0, 0, width, height);
 
-		gl.glMatrixMode(GL10.GL_PROJECTION);
+		/*gl.glMatrixMode(GL10.GL_PROJECTION);
 		gl.glLoadIdentity();
-		GLU.gluOrtho2D(gl, width, 0, height, 0);
+		GLU.gluOrtho2D(gl, width, 0, height, 0);*/
 		
-		gl.glMatrixMode(GL10.GL_MODELVIEW);
-		gl.glLoadIdentity();
+		Matrix.orthoM(projectionMatrix, 0, 0, width, height, 0, -1, 1);
+		
+		/*gl.glMatrixMode(GL10.GL_MODELVIEW);
+		gl.glLoadIdentity();*/
 		
 		camObjCoord = new float[] {  0,     0,       0f,
-                         				 width, 0,       0f,
-                         				 0,     height,  0f,
-                         				 width, height,  0f };
+                         				 0.5f, 0,       0f,
+                         				 0,     0.5f,  0f,
+                         				 0.5f, 0.5f,  0f };
 
 		cubeBuff = makeFloatBuffer(camObjCoord);
 		
-		gl.glVertexPointer(3, GL10.GL_FLOAT, 0, cubeBuff);
-		gl.glEnableClientState(GL10.GL_VERTEX_ARRAY);
+		//gl.glVertexPointer(3, GL10.GL_FLOAT, 0, cubeBuff);
+		//gl.glEnableClientState(GL10.GL_VERTEX_ARRAY);
+		
+		GLES20.glViewport(0, 0, width, height);
+    float ratio = (float) width / height;
+    Matrix.frustumM(mProjMatrix, 0, -ratio, ratio, -1, 1, 3, 7);
+    
+    checkGlError("surfaceChanged");
 	}
 
 	@Override
@@ -136,15 +162,29 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 		
 		frame++;
 		
-		gl.glEnable(GL10.GL_TEXTURE_2D);
-		gl.glClear(GL10.GL_COLOR_BUFFER_BIT | GL10.GL_DEPTH_BUFFER_BIT);
-
-		bindCameraTexture(gl);
+		checkGlError("onDraw");
+		//gl.glEnable(GL10.GL_TEXTURE_2D);
+		gl.glClear(GL10.GL_COLOR_BUFFER_BIT);
+		checkGlError("setup");
 		
+		//bindCameraTexture(gl);
+		
+		long time = SystemClock.uptimeMillis() % 4000L;
+    float angle = 0.090f * ((int) time);
+    Matrix.setRotateM(mMMatrix, 0, angle, 0, 0, 1.0f);
+    Matrix.multiplyMM(mMVPMatrix, 0, mVMatrix, 0, mMMatrix, 0);
+    Matrix.multiplyMM(mMVPMatrix, 0, mProjMatrix, 0, mMVPMatrix, 0);
+    
 		GLES20.glUseProgram(shaderProgram);
+		checkGlError("glUseProgram");
+		
+		cubeBuff.position(0);
+		GLES20.glVertexAttribPointer(shaderVertexPositionLocation, 3, GLES20.GL_FLOAT, false, 3 * 4, cubeBuff);
+    GLES20.glEnableVertexAttribArray(shaderVertexPositionLocation);
 
-		gl.glNormal3f(0,0,1);
-		gl.glDrawArrays(GL10.GL_TRIANGLE_STRIP, 0, 4);	
+    GLES20.glUniformMatrix4fv(shaderProjectionMatrixLocation, 1, false, mMVPMatrix, 0);
+
+		gl.glDrawArrays(GL10.GL_TRIANGLES, 0, 3);	
 	}
 
 	@Override
@@ -256,5 +296,15 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 		}
 		
 		return result;
+	}
+	
+	private void checkGlError(String op)
+	{
+		int error;
+		while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR)
+		{
+			Log.e(TAG, op + ": glError " + error);
+			throw new RuntimeException(op + ": glError " + error);
+		}
 	}
 }
