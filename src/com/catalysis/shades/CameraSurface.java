@@ -1,5 +1,9 @@
 package com.catalysis.shades;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -43,6 +47,7 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 	{
 		super(context);
 		
+		setEGLContextClientVersion(2);
     setEGLConfigChooser(false);
     setRenderer(this);
 	}
@@ -93,7 +98,7 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 		gl.glTexCoordPointer(2, GL10.GL_FLOAT, 0, texBuff);
 		gl.glEnableClientState(GL10.GL_TEXTURE_COORD_ARRAY);
 		
-		shaderProgram = createProgram("", "");
+		shaderProgram = createProgram(readShaderSource(true), readShaderSource(false));
 	}
 
 	@Override
@@ -224,5 +229,32 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 		}
 		
 		return shader;
+	}
+	
+	private String readShaderSource(boolean isVertexShader)
+	{
+		String result = "";
+		
+		InputStream stream = getResources().openRawResource(isVertexShader ? R.raw.vertex_shader : R.raw.fragment_shader);
+		BufferedReader buffStream = new BufferedReader(new InputStreamReader(stream));
+		
+		String line;
+		try
+		{
+			line = buffStream.readLine();
+			
+			while (line != null)
+			{
+				result += line + "\n";
+				line = buffStream.readLine();
+			}
+		}
+		catch (IOException e)
+		{
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		return result;
 	}
 }
