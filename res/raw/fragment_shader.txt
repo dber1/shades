@@ -1,34 +1,19 @@
 precision mediump float;
 varying vec2 vTextureCoord;
 uniform sampler2D sTexture;
-
+const float offset = 1.0 / 256.0;
+	
 void main() 
 {
-	vec4 baseColor = vec4(0.0, 0.0, 0.0, 0.0);
+	vec4 c = texture2D(sTexture, vTextureCoord);
+	/*vec4 edge = texture2D(sTexture, vTextureCoord + vec2(-offset, -offset)) +
+				texture2D(sTexture, vTextureCoord + vec2(-offset, 0.0)) +
+				texture2D(sTexture, vTextureCoord + vec2(-offset, offset)) +
+				texture2D(sTexture, vTextureCoord + vec2( 0.0, offset)) +
+				texture2D(sTexture, vTextureCoord + vec2( offset, offset)) +
+				texture2D(sTexture, vTextureCoord + vec2( offset, 0.0)) +
+				texture2D(sTexture, vTextureCoord + vec2( offset, -offset)) +
+				texture2D(sTexture, vTextureCoord + vec2( 0.0, -offset));*/
 	
-	float ddy = 0.015;
-	float ddx = 0.015;
- 
-  // Horizontal blur
-  baseColor += 0.015625 * texture2D(sTexture, vTextureCoord.xy + vec2(0.0, ddy*-3.0) );
-  baseColor += 0.09375 * texture2D(sTexture, vTextureCoord.xy + vec2(0.0, ddy*-2.0) );
-  baseColor += 0.234375 * texture2D(sTexture, vTextureCoord.xy + vec2(0.0, ddy*-1.0) );
-  baseColor += 0.3125 * texture2D(sTexture, vTextureCoord.xy + vec2(0.0, 0.0) );
-  baseColor += 0.234375 * texture2D(sTexture, vTextureCoord.xy + vec2(0.0, ddy*1.0) );
-  baseColor += 0.09375 * texture2D(sTexture, vTextureCoord.xy + vec2(0.0, ddy*2.0) );
-  baseColor += 0.015625 * texture2D(sTexture, vTextureCoord.xy + vec2(0.0, ddy*3.0) );
-  
-  // Vertical blur
-  baseColor += 0.015625 * texture2D(sTexture, vTextureCoord.xy + vec2(ddx*-3.0, 0.0) );
-  baseColor += 0.09375 * texture2D(sTexture, vTextureCoord.xy + vec2(ddx*-2.0, 0.0) );
-  baseColor += 0.234375 * texture2D(sTexture, vTextureCoord.xy + vec2(ddx*-1.0, 0.0) );
-  baseColor += 0.3125 * texture2D(sTexture, vTextureCoord.xy + vec2(0.0, 0.0) );
-  baseColor += 0.234375 * texture2D(sTexture, vTextureCoord.xy + vec2(ddx*1.0, 0.0) );
-  baseColor += 0.09375 * texture2D(sTexture, vTextureCoord.xy + vec2(ddx*2.0, 0.0) );
-  baseColor += 0.015625 * texture2D(sTexture, vTextureCoord.xy + vec2(ddx*3.0, 0.0) );
-  
-  	// Mix both
-  	baseColor *= 0.5;
-	
-	gl_FragColor = baseColor;//texture2D(sTexture, vTextureCoord);
+	gl_FragColor = c;//8.0 * (c + -0.125 * edge); 
 }
