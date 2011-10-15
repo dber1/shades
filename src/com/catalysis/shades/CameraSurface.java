@@ -16,27 +16,29 @@ import android.hardware.Camera;
 import android.hardware.Camera.PreviewCallback;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
-import android.opengl.GLU;
 import android.opengl.Matrix;
 import android.util.Log;
 import android.view.SurfaceHolder;
 import android.opengl.GLSurfaceView.Renderer;
-import android.os.SystemClock;
 
 public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCallback
 {
-	float camObjCoord[];
-	
-  private float[] mMVPMatrix = new float[16];
+  private static final int FLOAT_SIZE_BYTES = 4;
+  private static final int TRIANGLE_VERTICES_DATA_STRIDE_BYTES = 5 * FLOAT_SIZE_BYTES;
+  private static final int TRIANGLE_VERTICES_DATA_POS_OFFSET = 0;
+  private static final int TRIANGLE_VERTICES_DATA_UV_OFFSET = 3;
+  private float[] mTriangleVerticesData = {
+          // X, Y, Z, U, V
+          0.0f,  0f, 0, 0f, 0.0f,
+          1.0f,  0f, 0, 1f, 0f,
+          0.0f,  1f, 0, 0f,  1f,
+          1.0f,  1f, 0, 1f,  1f,
+          };
+  
   private float[] mProjMatrix = new float[16];
-  private float[] mMMatrix = new float[16];
-  private float[] mVMatrix = new float[16];
 	
-	final static float camTexCoords[] = new float[] { 0f, 0f,
-	                                         				  1f, 0f,
-	                                         				  0f, 1f,
-	                                         				  1f, 1f };
-
+  private FloatBuffer mTriangleVertices;
+  
 	private static final String TAG = "Shades";
 	private Camera camera;
 	
@@ -45,16 +47,15 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 	byte[] glCameraFrame = new byte[256*256];
 	int[] cameraTexture;
 	
+  private int mProgram;
+  private int mTextureID;
+  private int muMVPMatrixHandle;
+  private int maPositionHandle;
+  private int maTextureHandle;
+	
 	private long prevFrame = 0;
 	private long frame = 0;
-	
-	private float[] projectionMatrix = new float[16];
-	private float[] modelViewMatrix = new float[16];
-	
-	private int shaderProgram;
-	private int shaderVertexPositionLocation;
-	private int shaderModelViewMatrixLocation;
-	private int shaderProjectionMatrixLocation;
+
 	
 	public CameraSurface(Context context)
 	{
@@ -62,18 +63,7 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 		
 		setEGLContextClientVersion(2);
     setEGLConfigChooser(false);
-    setRenderer(new Example(context));
-	}
-	
-	FloatBuffer makeFloatBuffer(float[] arr) 
-	{
-		ByteBuffer bb = ByteBuffer.allocateDirect(arr.length*4);
-		bb.order(ByteOrder.nativeOrder());
-		FloatBuffer fb = bb.asFloatBuffer();
-		fb.put(arr);
-		fb.position(0);
-		
-		return fb;
+    setRenderer(this);
 	}
 	
 	@Override
@@ -100,52 +90,39 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 		camera.startPreview();
 		camera.setPreviewCallback(this);
 		
-		gl.glClearColor(0, 0, 0, 0);
-		gl.glEnable(GL10.GL_CULL_FACE);
-		//gl.glShadeModel(GL10.GL_SMOOTH);
-		gl.glEnable(GL10.GL_DEPTH_TEST);
-		
-		texBuff = makeFloatBuffer(camTexCoords);		
-		//gl.glTexCoordPointer(2, GL10.GL_FLOAT, 0, texBuff);
-		//gl.glEnableClientState(GL10.GL_TEXTURE_COORD_ARRAY);
-		
-		shaderProgram = createProgram(readShaderSource(true), readShaderSource(false));
-		checkGlError("createProgram");
-		
-		shaderVertexPositionLocation = GLES20.glGetAttribLocation(shaderProgram, "aVertexPosition");
-		shaderProjectionMatrixLocation = GLES20.glGetUniformLocation(shaderProgram, "uProjectionMatrix");
-		checkGlError("getLocation");
-		
-		Matrix.setLookAtM(mVMatrix, 0, 0, 0, -5, 0f, 0f, 0f, 0f, 1.0f, 0.0f);
+    // Ignore the passed-in GL10 interface, and use the GLES20
+    // class's static methods instead.
+    mProgram = createProgram(readShaderSource(true), readShaderSource(false));
+    
+		maPositionHandle = GLES20.glGetAttribLocation(mProgram, "aPosition");
+		checkGlError("glGetAttribLocation aPosition");
+
+		maTextureHandle = GLES20.glGetAttribLocation(mProgram, "aTextureCoord");
+		checkGlError("glGetAttribLocation aTextureCoord");
+
+		muMVPMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uMVPMatrix");
+		checkGlError("glGetUniformLocation uMVPMatrix");
 	}
 
 	@Override
 	public void onSurfaceChanged(GL10 gl, int width, int height)
 	{
-		gl.glViewport(0, 0, width, height);
-
-		/*gl.glMatrixMode(GL10.GL_PROJECTION);
-		gl.glLoadIdentity();
-		GLU.gluOrtho2D(gl, width, 0, height, 0);*/
-		
-		Matrix.orthoM(projectionMatrix, 0, 0, width, height, 0, -1, 1);
-		
-		/*gl.glMatrixMode(GL10.GL_MODELVIEW);
-		gl.glLoadIdentity();*/
-		
-		camObjCoord = new float[] {  0,     0,       0f,
-                         				 0.5f, 0,       0f,
-                         				 0,     0.5f,  0f,
-                         				 0.5f, 0.5f,  0f };
-
-		cubeBuff = makeFloatBuffer(camObjCoord);
-		
-		//gl.glVertexPointer(3, GL10.GL_FLOAT, 0, cubeBuff);
-		//gl.glEnableClientState(GL10.GL_VERTEX_ARRAY);
-		
 		GLES20.glViewport(0, 0, width, height);
-    float ratio = (float) width / height;
-    Matrix.frustumM(mProjMatrix, 0, -ratio, ratio, -1, 1, 3, 7);
+
+    Matrix.orthoM(mProjMatrix, 0, 0, width, height, 0, -1, 1);
+    
+    mTriangleVerticesData = new float[] {
+                                             // X, Y, Z, U, V
+                                             0.0f,  0f, 0, 0f, 0.0f,
+                                             width,  0f, 0, 1f, 0f,
+                                             0.0f,  height, 0, 0f,  1f,
+                                             width,  height, 0, 1f,  1f,
+                                             };
+    
+    mTriangleVertices = ByteBuffer.allocateDirect(mTriangleVerticesData.length * FLOAT_SIZE_BYTES)
+    	.order(ByteOrder.nativeOrder()).asFloatBuffer();
+    
+    mTriangleVertices.put(mTriangleVerticesData).position(0);
     
     checkGlError("surfaceChanged");
 	}
@@ -161,30 +138,34 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 		}
 		
 		frame++;
-		
-		checkGlError("onDraw");
-		//gl.glEnable(GL10.GL_TEXTURE_2D);
-		gl.glClear(GL10.GL_COLOR_BUFFER_BIT);
-		checkGlError("setup");
-		
-		//bindCameraTexture(gl);
-		
-		long time = SystemClock.uptimeMillis() % 4000L;
-    float angle = 0.090f * ((int) time);
-    Matrix.setRotateM(mMMatrix, 0, angle, 0, 0, 1.0f);
-    Matrix.multiplyMM(mMVPMatrix, 0, mVMatrix, 0, mMMatrix, 0);
-    Matrix.multiplyMM(mMVPMatrix, 0, mProjMatrix, 0, mMVPMatrix, 0);
+
+    GLES20.glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    GLES20.glClear( GLES20.GL_DEPTH_BUFFER_BIT | GLES20.GL_COLOR_BUFFER_BIT);
+    GLES20.glUseProgram(mProgram);
+    checkGlError("glUseProgram");
+
+    bindCameraTexture();
+    GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
     
-		GLES20.glUseProgram(shaderProgram);
-		checkGlError("glUseProgram");
-		
-		cubeBuff.position(0);
-		GLES20.glVertexAttribPointer(shaderVertexPositionLocation, 3, GLES20.GL_FLOAT, false, 3 * 4, cubeBuff);
-    GLES20.glEnableVertexAttribArray(shaderVertexPositionLocation);
+    mTriangleVertices.position(TRIANGLE_VERTICES_DATA_POS_OFFSET);
+    GLES20.glVertexAttribPointer(maPositionHandle, 3, GLES20.GL_FLOAT, false,
+            TRIANGLE_VERTICES_DATA_STRIDE_BYTES, mTriangleVertices);
+    checkGlError("glVertexAttribPointer maPosition");
+    
+    mTriangleVertices.position(TRIANGLE_VERTICES_DATA_UV_OFFSET);
+    GLES20.glEnableVertexAttribArray(maPositionHandle);
+    checkGlError("glEnableVertexAttribArray maPositionHandle");
+    
+    GLES20.glVertexAttribPointer(maTextureHandle, 2, GLES20.GL_FLOAT, false,
+            TRIANGLE_VERTICES_DATA_STRIDE_BYTES, mTriangleVertices);
+    checkGlError("glVertexAttribPointer maTextureHandle");
+    
+    GLES20.glEnableVertexAttribArray(maTextureHandle);
+    checkGlError("glEnableVertexAttribArray maTextureHandle");
 
-    GLES20.glUniformMatrix4fv(shaderProjectionMatrixLocation, 1, false, mMVPMatrix, 0);
-
-		gl.glDrawArrays(GL10.GL_TRIANGLES, 0, 3);	
+    GLES20.glUniformMatrix4fv(muMVPMatrixHandle, 1, false, mProjMatrix, 0);
+    GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+    checkGlError("glDrawArrays");
 	}
 
 	@Override
@@ -200,20 +181,20 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
  		}
 	}
 	
-	private void bindCameraTexture(GL10 gl) 
+	private void bindCameraTexture() 
 	{
 		synchronized(this) 
 		{
 			if (cameraTexture == null)
 				cameraTexture = new int[1];
 			else
-				gl.glDeleteTextures(1, cameraTexture, 0);
+				GLES20.glDeleteTextures(1, cameraTexture, 0);
 			
-			gl.glGenTextures(1, cameraTexture, 0);
-			int tex = cameraTexture[0];
-			gl.glBindTexture(GL10.GL_TEXTURE_2D, tex);
-			gl.glTexImage2D(GL10.GL_TEXTURE_2D, 0, GL10.GL_LUMINANCE, 256, 256, 0, GL10.GL_LUMINANCE, GL10.GL_UNSIGNED_BYTE, ByteBuffer.wrap(glCameraFrame));
-			gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_LINEAR);
+			GLES20.glGenTextures(1, cameraTexture, 0);
+			mTextureID = cameraTexture[0];
+			GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureID);
+			GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE, 256, 256, 0, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, ByteBuffer.wrap(glCameraFrame));
+			GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
 		}
 	}
 	
@@ -291,7 +272,6 @@ public class CameraSurface extends GLSurfaceView implements Renderer, PreviewCal
 		}
 		catch (IOException e)
 		{
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		
